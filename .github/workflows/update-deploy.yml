@@ -1,0 +1,81 @@
+name: update-deploy
+
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+  NAME: "${{ github.event.repository.name }}"
+  DEPLOY_REPO: ${{ vars.DEPLOY_REPO }}
+  TAG: "latest"
+
+permissions:
+  packages: read
+
+jobs:
+  update:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-slim
+
+    steps:
+      - name: Prepare environment
+        id: vars
+        run: |
+          echo "image=${REGISTRY,,}/${NAME,,}:${TAG,,}" >> "$GITHUB_OUTPUT"
+          echo "name=${NAME,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate deploy token
+        id: deploy-token
+        uses: actions/create-github-app-token@v3
+        with:
+          private-key: ${{ secrets.DEPLOY_PRIVATE_KEY }}
+          client-id: ${{ vars.DEPLOY_CLIENT_ID }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ env.DEPLOY_REPO }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout deploy repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.DEPLOY_REPO }}
+          token: ${{ steps.deploy-token.outputs.token }}
+
+      - name: Update image
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          NAME: ${{ steps.vars.outputs.name }}
+        run: |
+          DIGEST=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' | jq -r '.digest')
+          IMAGE="${IMAGE%:*}@$DIGEST"
+          export IMAGE
+
+          yq -i '.images[strenv(NAME)] = strenv(IMAGE)' chart/values.yaml
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ steps.deploy-token.outputs.token }}
+          NAME: ${{ steps.vars.outputs.name }}
+        run: |
+          BRANCH="update-$NAME-${{ github.event.workflow_run.id }}"
+          git diff --quiet && exit 0
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git checkout -b "$BRANCH"
+          git add chart/values.yaml
+          git commit -m "chore: update $NAME image"
+          git push origin "$BRANCH"
+
+          gh pr create --base main --head "$BRANCH" \
+            --title "chore: update $NAME image" \
+            --body "Update $NAME image digest."
