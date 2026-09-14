@@ -9,8 +9,9 @@ on:
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}
   NAME: "${{ github.event.repository.name }}"
-  DEPLOY_REPO: ${{ vars.DEPLOY_REPO }}
-  TAG: "latest"
+  VALUES_PATH: hypixel-grpc/values.yaml
+  CLIENT_ID: Iv23liiaP4G2FD7UKeq7
+  REPO: charts
 
 permissions:
   packages: read
@@ -24,7 +25,7 @@ jobs:
       - name: Prepare environment
         id: vars
         run: |
-          echo "image=${REGISTRY,,}/${NAME,,}:${TAG,,}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY,,}/${NAME,,}:latest" >> "$GITHUB_OUTPUT"
           echo "name=${NAME,,}" >> "$GITHUB_OUTPUT"
 
       - name: Generate deploy token
@@ -32,9 +33,9 @@ jobs:
         uses: actions/create-github-app-token@v3
         with:
           private-key: ${{ secrets.DEPLOY_PRIVATE_KEY }}
-          client-id: ${{ vars.DEPLOY_CLIENT_ID }}
           owner: ${{ github.repository_owner }}
-          repositories: ${{ env.DEPLOY_REPO }}
+          client-id: ${{ env.CLIENT_ID }}
+          repositories: ${{ env.REPO }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
@@ -46,7 +47,7 @@ jobs:
       - name: Checkout deploy repository
         uses: actions/checkout@v7
         with:
-          repository: ${{ github.repository_owner }}/${{ env.DEPLOY_REPO }}
+          repository: ${{ github.repository_owner }}/${{ env.REPO }}
           token: ${{ steps.deploy-token.outputs.token }}
 
       - name: Update image
@@ -55,10 +56,9 @@ jobs:
           NAME: ${{ steps.vars.outputs.name }}
         run: |
           DIGEST=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' | jq -r '.digest')
-          IMAGE="${IMAGE%:*}@$DIGEST"
-          export IMAGE
+          export IMAGE="${IMAGE%:*}@$DIGEST"
 
-          yq -i '.images[strenv(NAME)] = strenv(IMAGE)' chart/values.yaml
+          yq -i '.images[strenv(NAME)] = strenv(IMAGE)' ${{ env.VALUES_PATH }}
 
       - name: Open pull request
         env:
@@ -72,7 +72,7 @@ jobs:
           git config user.name "github-actions[bot]"
 
           git checkout -b "$BRANCH"
-          git add chart/values.yaml
+          git add ${{ env.VALUES_PATH }}
           git commit -m "chore: update $NAME image"
           git push origin "$BRANCH"
 
