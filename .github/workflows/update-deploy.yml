@@ -9,7 +9,7 @@ on:
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}
   NAME: "${{ github.event.repository.name }}"
-  VALUES_PATH: hypixel-grpc/values.yaml
+  VALUES_PATH: hypixel/values.yaml
   CLIENT_ID: Iv23liiaP4G2FD7UKeq7
   REPO: charts
 
