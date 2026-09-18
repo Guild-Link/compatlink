@@ -2,7 +2,7 @@ import { createFarmingWeightCalculator } from "farming-weight";
 import { ProfileNetworthCalculator } from "skyhelper-networth";
 import Fastify from "fastify";
 
-const app = Fastify();
+const app = Fastify({ bodyLimit: 100 * 1024 * 1024 });
 
 app.post("/farming-weight", async (request) => {
   const { profile, uuid: rawUuid } = request.body as any;
